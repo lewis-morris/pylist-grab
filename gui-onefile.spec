@@ -3,8 +3,9 @@ a = Analysis(
     pathex=[],
     datas=[
         ('./pylist/assets/dark_teal.xml', 'pylist-grab/assets/'),
-        ('C:\\Users\\lewis.morris.LBS\\PycharmProjects\\pylist-grab\\venvtest\\Lib\\site-packages', 'qt_material/fonts/'),
-        ('C:\\Users\\lewis.morris.LBS\\PycharmProjects\\pylist-grab\\venvtest\\Lib\\site-packages', 'qt_material/resources/'),
+        ('./venv/Lib/site-packages/qt_material/fonts/', 'qt_material/fonts/'),
+        ('./venv/Lib/site-packages/qt_material', 'qt_material'),
+        ('./venv/Lib/site-packages/qt_material/resources/', 'qt_material/resources/'),
         ('./pylist/assets/', 'pylist/assets/'),
     ],
     hiddenimports=['qt_material', 'PySide6', 'PIL', 'PIL.Image', 'PIL.ImageFilter', 'imageio', 'imageio_ffmpeg', 'decorator', 'tqdm', 'numpy', 'scipy'],
@@ -35,5 +36,4 @@ exe = EXE(
     entitlements_file=None,
     distpath='windows_dist',
     icon='./pylist/assets/icon_256.ico',
-    onefile=True  # This is the key change
 )

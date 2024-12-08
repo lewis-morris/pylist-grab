@@ -9,7 +9,8 @@ a = Analysis(
         ('./pylist/assets/', 'pylist/assets/'),
     ],
     hiddenimports=['qt_material', 'PySide6', 'PIL', 'PIL.Image', 'PIL.ImageFilter', 'imageio', 'imageio_ffmpeg', 'decorator', 'tqdm', 'numpy', 'scipy'],
-    hookspath=[],
+    hookspath=[],when ever
+
     runtime_hooks=[],
     excludes=[],
     noarchive=True,

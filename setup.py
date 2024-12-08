@@ -1,13 +1,13 @@
 from setuptools import setup, find_packages
 
 # Read the content of README.md
-with open("README.md", "r", encoding="utf-8") as f:
+with open("readme.MD", "r", encoding="utf-8") as f:
     readme = f.read()
 
 
 setup(
     name="pylist-grab",
-    version="0.0.5",
+    version="0.0.7",
     packages=find_packages(),
     url="https://github.com/lewis-morris/pylist-grab",
     license="MIT",
@@ -27,13 +27,13 @@ setup(
         "pylist": ["pylist/assets/*.png", "pylist/assets/*.ico"],
     },
     install_requires=[
-        "requests~=2.31.0",
+        "requests~=2.31.0"
         "pytube~=15.0.0",
         "moviepy~=1.0.3",
         "mutagen~=1.47.0",
-        "pyside6~=6.6.0",
-        "pyside6-essentials~=6.6.0",
         "setuptools~=68.0.0",
         "qt_material~=2.4.0",
+        "PySide6~=6.6.0",
+        "pylist==1.4.0"
     ],
 )
