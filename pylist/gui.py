@@ -158,21 +158,25 @@ class DownloadWorker(QObject):
                 download_indicator_function=self.set_downloading,
             )
         ):
-            title = song_meta["title"]
-            artist = song_meta["author"]
+            try:
+                title = song_meta["title"]
+                artist = song_meta["author"]
 
-            total_time += time_taken
-            average_time = total_time / (i + 1)
-            estimated_remaining = average_time * (playlist_length - (i + 1))
+                total_time += time_taken
+                average_time = total_time / (i + 1)
+                estimated_remaining = average_time * (playlist_length - (i + 1))
 
-            duration = time.strftime("%M:%S", time.gmtime(time_taken))
-            estimated_remaining_str = time.strftime(
-                "%M:%S", time.gmtime(estimated_remaining)
-            )
+                duration = time.strftime("%M:%S", time.gmtime(time_taken))
+                estimated_remaining_str = time.strftime(
+                    "%M:%S", time.gmtime(estimated_remaining)
+                )
 
-            self.progress.emit(i + 1, artist, title, duration, estimated_remaining_str)
-            time.sleep(0.1)  # simulate processing time
-
+                self.progress.emit(i + 1, artist, title, duration, estimated_remaining_str)
+                time.sleep(0.1)  # simulate processing time
+            except:
+                logging.exception("Error during download")
+                self.progress.emit(i + 1, "Error", "Error", "00:00", "00:00")
+                continue
         self.finished.emit()
 
     def set_downloading(self, dots=0):
