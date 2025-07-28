@@ -373,32 +373,32 @@ def download_playlist(
 ) -> Optional[dict]:
     """Download a playlist and yield metadata for each song."""
 
-    def log(message: str, indicator: Optional[callable] = None, no_indicator: int = 0) -> None:
+    def log(message: str) -> None:
         if verbosity > 1:
             print(message)
-        if indicator:
-            indicator(no_indicator)
 
     if dump_directory and not os.path.exists(dump_directory):
         raise Exception("Dump directory does not exist")
 
-    for url in playlist.video_urls:
+    for index, url in enumerate(playlist.video_urls):
         for attempt in range(5):
             try:
                 start_time = time.time()
 
-                log("Attempting to grab: " + url, download_indicator_function, 1)
+                log("Attempting to grab: " + url)
                 info = run_silently(download_stream_from_url, silence, url)
                 if info:
                     meta_data = pull_meta_data(info)
                     log("Metadata received: " + str(meta_data))
+                    if download_indicator_function:
+                        download_indicator_function(index, meta_data)
 
                     log("Attempting to download")
                     filename = run_silently(
                         read_write_audio, silence, meta_data, dump_directory, info["filepath"]
                     )
 
-                    log("Download complete", download_indicator_function, 2)
+                    log("Download complete")
 
                     run_silently(
                         set_metadata,
@@ -414,7 +414,7 @@ def download_playlist(
 
                     if do_yield:
                         yield meta_data, time_taken
-                    log("Download complete", download_indicator_function, 3)
+                    log("Download complete")
                     break
                 else:
                     if verbosity > 0:
