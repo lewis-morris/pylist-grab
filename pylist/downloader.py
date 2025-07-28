@@ -5,7 +5,7 @@ from typing import Optional
 
 import pytube
 import requests
-from moviepy.editor import AudioFileClip
+from moviepy import AudioFileClip
 from mutagen.id3 import TCON, TALB
 # Function to set metadata for MP3 files
 from mutagen.id3 import TIT2, TPE1, COMM, APIC, TDRC
