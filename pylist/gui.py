@@ -179,8 +179,10 @@ class DownloadWorker(QObject):
                 continue
         self.finished.emit()
 
-    def set_downloading(self, dots=0):
-        pass
+    def set_downloading(self, index, meta_data):
+        artist = meta_data.get("author", "")
+        title = meta_data.get("title", "")
+        self.progress.emit(index, artist, title, "STARTING", "")
 
 
 class App(QMainWindow):
@@ -316,6 +318,9 @@ class App(QMainWindow):
             self.download_button.setText("Downloading...")
             self.download_button.setEnabled(False)
 
+            self.progress_bar.setValue(0)
+            self.progress_label.setText(f"0/{self.playlist_length}")
+
             self.worker_thread = QThread()
             self.download_worker = DownloadWorker(
                 self.playlist,
@@ -335,15 +340,21 @@ class App(QMainWindow):
     def update_progress(self, i, artist, title, duration, estimated_remaining):
         percent = int((i / self.playlist_length) * 100)
         self.progress_bar.setValue(percent)
+        if duration == "STARTING":
+            self.progress_label.setText(
+                f"{i}/{self.playlist_length} - Starting: {artist} - {title}"
+            )
+        else:
+            new_item = QListWidgetItem(
+                f"{artist} - {title} (Download took: {duration})"
+            )
+            new_item.setSizeHint(QSize(-1, 20))
+            self.song_list.insertItem(0, new_item)
+            self.song_list.scrollToItem(new_item)
 
-        new_item = QListWidgetItem(f"{artist} - {title} (Download took: {duration})")
-        new_item.setSizeHint(QSize(-1, 20))
-        self.song_list.insertItem(0, new_item)
-        self.song_list.scrollToItem(new_item)
-
-        self.progress_label.setText(
-            f"{i}/{self.playlist_length} (Estimated time remaining: {estimated_remaining})"
-        )
+            self.progress_label.setText(
+                f"{i}/{self.playlist_length} (Estimated time remaining: {estimated_remaining})"
+            )
 
     def download_finished(self):
         self.download_button.setText("Download List")
