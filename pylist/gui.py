@@ -27,7 +27,6 @@ from PySide6.QtWidgets import (
     QWizard,
     QSplashScreen, QListWidget, QListWidgetItem, QDialog,
 )
-from pytube import Playlist
 from qt_material import apply_stylesheet
 
 from pylist.downloader import (

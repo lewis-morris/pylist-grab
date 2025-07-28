@@ -28,7 +28,7 @@ setup(
     },
     install_requires=[
         "requests~=2.31.0"
-        "pytube~=15.0.0",
+        "yt-dlp~=2024.4",
         "moviepy~=1.0.3",
         "mutagen~=1.47.0",
         "setuptools~=68.0.0",
