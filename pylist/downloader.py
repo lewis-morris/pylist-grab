@@ -1,219 +1,81 @@
 import os
 import re
 import time
-from typing import Optional
+from dataclasses import dataclass
+from typing import List, Optional
 
-import pytube
 import requests
 from moviepy import AudioFileClip
-from mutagen.id3 import TCON, TALB
-# Function to set metadata for MP3 files
-from mutagen.id3 import TIT2, TPE1, COMM, APIC, TDRC
+from mutagen.id3 import TIT2, TPE1, COMM, APIC, TDRC, TCON, TALB
 from mutagen.mp3 import MP3
-from pytube.exceptions import RegexMatchError
+from yt_dlp import YoutubeDL
 
 from pylist.utils import run_silently
-from pytube import Playlist, YouTube
 
-invalid_characters_replacements = {
-    "<": "_",  # Less than
-    ">": "_",  # Greater than
-    ":": "-",  # Colon
-    "\"": "'", # Double quote
-    "/": "-",  # Forward slash
-    "\\": "-", # Backslash
-    "|": "-",  # Vertical bar or pipe
-    "?": "",   # Question mark
-    "*": "",   # Asterisk
-}
+
+@dataclass
+class SimplePlaylist:
+    """Minimal playlist representation used by the downloader."""
+
+    title: str
+    video_urls: List[str]
+
+    def __len__(self) -> int:  # pragma: no cover - trivial
+        return len(self.video_urls)
+
+
 REMOVE_WORDS = [
     "|",
     "Official Video",
-    "Official Video",
     "Lyric Video",
-    "Lyric Video",
-    "Official Music Video",
     "Official Music Video",
     "Official Lyric Video",
     "Official Audio",
-    "Official Audio",
     "Visualizer",
-    "Visualizer",
-    "Audio",
     "Audio",
     "Video",
     "(Video)",
     "Cover",
-    "Cover",
     "MV",
-    "MV",
-    "Extended Version",
     "Extended Version",
     "Instrumental",
     "Radio Edit",
-    "Radio Edit",
-    "Clip Officiel",
-    "Clip Officile",
     "Clip Officiel",
     "Official",
-    "Official",
-    "HD",
     "HD",
     "[HQ]",
-    "HQ"
-    "4K",
-    "[HD]",
+    "HQ",
     "4K",
     "VEVO",
-    "VEVO",
-    "Explicit",
     "Explicit",
     "Music Video",
     "(Clean)",
     "Demo",
-    "Demo",
     "Teaser",
-    "Teaser",
-    "Performance Video",
     "Performance Video",
 ]
 
 
-# PATCH
-import pytube
-import ssl
-from pytube import YouTube
-from pytube import request
-from pytube import extract
-from pytube.innertube import _default_clients
-from pytube.exceptions import RegexMatchError
-
-_default_clients["ANDROID"]["context"]["client"]["clientVersion"] = "19.08.35"
-_default_clients["IOS"]["context"]["client"]["clientVersion"] = "19.08.35"
-_default_clients["ANDROID_EMBED"]["context"]["client"]["clientVersion"] = "19.08.35"
-_default_clients["IOS_EMBED"]["context"]["client"]["clientVersion"] = "19.08.35"
-_default_clients["IOS_MUSIC"]["context"]["client"]["clientVersion"] = "6.41"
-_default_clients["ANDROID_MUSIC"] = _default_clients["ANDROID"]
-
-import pytube, re
-def patched_get_throttling_function_name(js: str) -> str:
-    function_patterns = [
-        r'a\.[a-zA-Z]\s*&&\s*\([a-z]\s*=\s*a\.get\("n"\)\)\s*&&.*?\|\|\s*([a-z]+)',
-        r'\([a-z]\s*=\s*([a-zA-Z0-9$]+)(\[\d+\])?\([a-z]\)',
-        r'\([a-z]\s*=\s*([a-zA-Z0-9$]+)(\[\d+\])\([a-z]\)',
-    ]
-    for pattern in function_patterns:
-        regex = re.compile(pattern)
-        function_match = regex.search(js)
-        if function_match:
-            if len(function_match.groups()) == 1:
-                return function_match.group(1)
-            idx = function_match.group(2)
-            if idx:
-                idx = idx.strip("[]")
-                array = re.search(
-                    r'var {nfunc}\s*=\s*(\[.+?\]);'.format(
-                        nfunc=re.escape(function_match.group(1))),
-                    js
-                )
-                if array:
-                    array = array.group(1).strip("[]").split(",")
-                    array = [x.strip() for x in array]
-                    return array[int(idx)]
-
-    raise RegexMatchError(
-        caller="get_throttling_function_name", pattern="multiple"
-    )
-
-ssl._create_default_https_context = ssl._create_unverified_context
-pytube.cipher.get_throttling_function_name = patched_get_throttling_function_name
-
-
-def new_get_throttling_function_name(js: str) -> str:
-    """Extract the name of the function that computes the throttling parameter.
-
-    :param str js:
-        The contents of the base.js asset file.
-    :rtype: str
-    :returns:
-        The name of the function used to compute the throttling parameter.
-    """
-    function_patterns = [
-        # https://github.com/ytdl-org/youtube-dl/issues/29326#issuecomment-865985377
-        # https://github.com/yt-dlp/yt-dlp/commit/48416bc4a8f1d5ff07d5977659cb8ece7640dcd8
-        # var Bpa = [iha];
-        # ...
-        # a.C && (b = a.get("n")) && (b = Bpa[0](b), a.set("n", b),
-        # Bpa.length || iha("")) }};
-        # In the above case, `iha` is the relevant function name
-        r'a\.[a-zA-Z]\s*&&\s*\([a-z]\s*=\s*a\.get\("n"\)\)\s*&&.*?\|\|\s*([a-z]+)',
-        r'\([a-z]\s*=\s*([a-zA-Z0-9$]+)(\[\d+\])?\([a-z]\)',
-        r'\([a-z]\s*=\s*([a-zA-Z0-9$]+)(\[\d+\])\([a-z]\)',
-    ]
-    # logger.debug('Finding throttling function name')
-    for pattern in function_patterns:
-        regex = re.compile(pattern)
-        function_match = regex.search(js)
-        if function_match:
-            # logger.debug("finished regex search, matched: %s", pattern)
-            if len(function_match.groups()) == 1:
-                return function_match.group(1)
-            idx = function_match.group(2)
-            if idx:
-                idx = idx.strip("[]")
-                array = re.search(
-                    r'var {nfunc}\s*=\s*(\[.+?\]);'.format(
-                        nfunc=re.escape(function_match.group(1))),
-                    js
-                )
-                if array:
-                    array = array.group(1).strip("[]").split(",")
-                    array = [x.strip() for x in array]
-                    return array[int(idx)]
-
-    raise RegexMatchError(
-        caller="get_throttling_function_name", pattern="multiple"
-    )
-
-pytube.cipher.get_throttling_function_name = new_get_throttling_function_name
-
 def set_metadata(
-        save_path: str,
-        filename: str,
-        author: str,
-        title: str,
-        album: str,
-        artwork: str,
-        keywords: str,
-        comment: str,
-        date: str,
-        genre: Optional[str] = None,
-):
-    """
-    Set the metadata for the MP3 file
-    Args:
-        save_path (str): The path to save the file to
-        filename (str): The name of the file
-        author (str): The author of the song
-        title (str): The title of the song
-        album (str),  The album name
-        artwork (str): The URL of the artwork
-        keywords (str): The keywords
-        comment (str): The comment
-        date (str): The date
+    save_path: str,
+    filename: str,
+    author: str,
+    title: str,
+    album: str,
+    artwork: str,
+    keywords: List[str],
+    comment: str,
+    date: str,
+    genre: Optional[str] = None,
+) -> None:
+    """Populate ID3 metadata for the downloaded MP3 file."""
 
-    Returns:
-        None
-
-    """
     audio = MP3(save_path)
 
-    # Add ID3 tag if it doesn't exist
     try:
-
         audio.add_tags()
-    except Exception as e:
-        print(f"Could not add tags: {e}")
+    except Exception:
+        pass
 
     if title:
         audio["TIT2"] = TIT2(encoding=3, text=title)
@@ -225,7 +87,7 @@ def set_metadata(
         audio.save()
         audio = MP3(save_path)
 
-    if album:  # Set the album name
+    if album:
         audio["TALB"] = TALB(encoding=3, text=album)
         audio.save()
         audio = MP3(save_path)
@@ -236,59 +98,48 @@ def set_metadata(
         audio = MP3(save_path)
 
     if date:
-        audio["TDRC"] = TDRC(encoding=3, text=str(date))  # Setting the release date
+        audio["TDRC"] = TDRC(encoding=3, text=str(date))
         audio.save()
         audio = MP3(save_path)
 
-
-    # Add featured artist if provided
     featured_artist = grab_ft(title)
     if featured_artist:
         featured_artist_tag = TPE1(encoding=3, text=featured_artist)
         if "TPE2" in audio:
             audio["TPE2"].text[0] = featured_artist
             audio.save()
-
         else:
             audio["TPE2"] = featured_artist_tag
             audio.save()
         audio = MP3(save_path)
 
-
-    # Download and add artwork
     if artwork:
-        artwork = requests.get(artwork).content
-        audio.tags.add(
-            APIC(encoding=3, mime="image/jpeg", type=3, desc="Cover", data=artwork)
-        )
-        audio.save()
+        try:
+            artwork_data = requests.get(artwork, timeout=5).content
+            audio.tags.add(
+                APIC(encoding=3, mime="image/jpeg", type=3, desc="Cover", data=artwork_data)
+            )
+            audio.save()
+        except Exception:
+            pass
 
-    # Add genre if provided
     if genre:
         audio["TCON"] = TCON(encoding=3, text=genre)
         audio.save()
 
 
-def clean_remix(title, author):
-    """
-    Clean the title of the song
-    """
+def clean_remix(title: str, author: str) -> str:
     if author in title:
-        title.replace(title, "")
+        title = title.replace(author, "")
     if "()" in title:
-        title.replace("()", "")
-    for type in ["bootleg", "remix", "edit", "mix", "rework", "re-edit"]:
-        if f"({type})" in title.lower():
-            title.replace(f"({type})", "type")
-
+        title = title.replace("()", "")
+    for typ in ["bootleg", "remix", "edit", "mix", "rework", "re-edit"]:
+        if f"({typ})" in title.lower():
+            title = title.lower().replace(f"({typ})", typ)
     return title
-def clean_title(title: str, featured: str):
-    """
-    Clean the title of the song
-    Args:
-        title (str): The title of the song
-        featured (str): The featured artist
-    """
+
+
+def clean_title(title: str, featured: str) -> str:
     for word in REMOVE_WORDS:
         title = (
             title.replace(word, "")
@@ -297,7 +148,12 @@ def clean_title(title: str, featured: str):
             .replace(word.title(), "")
         )
 
-    title = title.replace(featured, "").replace("(ft. )", '').replace("ft. ", '').replace("ft ", '')
+    title = (
+        title.replace(featured, "")
+        .replace("(ft. )", "")
+        .replace("ft. ", "")
+        .replace("ft ", "")
+    )
 
     return (
         title.replace("  ", " ")
@@ -313,135 +169,175 @@ def clean_title(title: str, featured: str):
     )
 
 
-
-
-def grab_ft(title: str):
-    """
-    Grab the ft. part of the title which would be the featured artist
-    Args:
-        title (str): The title of the song
-
-    Returns:
-        str: The featured artist
-    """
+def grab_ft(title: str) -> Optional[str]:
     if "ft" in title.lower():
         location = title.lower().find("ft")
         return title[location:].strip()
+    return None
 
 
-# Initialize a Playlist object
+def validate_playlist(playlist_url: str) -> SimplePlaylist:
+    """Validate a playlist URL and return a :class:`SimplePlaylist`."""
 
+    ydl_opts = {"quiet": True, "extract_flat": True}
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(playlist_url, download=False)
 
-def validate_playlist(playlist_url: str):
-    """
-    Validate the playlist URL and return the playlist object
-    Args:
-        playlist_url (str): The URL of the playlist
-
-    Returns:
-
-    """
-    playlist = Playlist(playlist_url)
-    if len(playlist.video_urls) == 0:
+    entries = info.get("entries") or []
+    if not entries:
         raise Exception("Playlist is empty")
 
-    return playlist
+    video_urls = []
+    for entry in entries:
+        url = entry.get("url") or entry.get("webpage_url")
+        if not url.startswith("http"):
+            url = f"https://www.youtube.com/watch?v={entry.get('id')}"
+        video_urls.append(url)
+
+    return SimplePlaylist(title=info.get("title", "Playlist"), video_urls=video_urls)
 
 
+def download_stream_from_url(song_url: str) -> dict:
+    """Download the best audio from the given video URL."""
+
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "quiet": True,
+        "outtmpl": "temp_audio.%(ext)s",
+    }
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(song_url, download=True)
+        info["filepath"] = ydl.prepare_filename(info)
+    return info
 
 
-def download_stream_from_url(song_url: str):
-    """
-    Download the audio stream from the YouTube video
-    Args:
-        song_url (str): The URL of the YouTube video
-
-    Returns:
-        YouTube: The YouTube object
-    """
-    # Get the audio stream with the highest bitrate
-    yt = YouTube(song_url)
-    audio_stream = yt.streams.filter(only_audio=True).order_by("abr").desc().first()
-    audio_stream.download(filename="temp_audio", max_retries=5)
-    return yt
-
-
-def extract_featured_artist(song_info):
-    # Regular expression to capture artist name after 'ft.'
-    # This pattern accounts for optional parentheses, and considers different placements of 'ft.'
-    regex_patterns = [
-        r'ft\.\s*(?:\()?(.*?)(?:\))?\s*-',  # Before the dash
-        r'-\s*(?:.*?)ft\.\s*(?:\()?(.*?)(?:\))?$'  # After the dash
+def extract_featured_artist(song_info: str) -> Optional[str]:
+    patterns = [
+        r"ft\.\s*(?:\()?(.*?)(?:\))?\s*-",
+        r"-\s*(?:.*?)ft\.\s*(?:\()?(.*?)(?:\))?$",
     ]
-
-    for pattern in regex_patterns:
-        # Perform regex search
+    for pattern in patterns:
         match = re.search(pattern, song_info)
         if match:
             return match.group(1).strip()
-
     return None
 
-def pull_genre(title):
-    options = ["Deep House", "Electro House", "Future House", "Progressive House", "Tech House", "Tropical House", "Techno", "Detroit Techno", "Minimal Techno", "Dub Techno", "Industrial Techno", "Drum and Bass", "Liquid Drum and Bass", "Jump-Up", "Neurofunk", "Jungle", "Dubstep", "Brostep", "Chillstep", "Trance", "Progressive Trance", "Psytrance (Psychedelic Trance)", "Vocal Trance", "Uplifting Trance", "Electro", "Electroclash", "Electropop", "EDM", "Big Room", "Dance-Pop", "Ambient", "Ambient House", "Dark Ambient", "Drone Music", "Breakbeat", "Nu Skool Breaks", "Big Beat", "Breakcore", "Hardcore", "Happy Hardcore", "Gabber", "UK Hardcore", "Industrial", "EBM", "Aggrotech", "IDM", "Glitch", "Drill 'n' Bass", "Trip-Hop", "Downtempo", "Glitch Hop", "Moombahton", "Future Bass", "Grime", "Trap", "Hybrid Trap", "Synthwave", "Vaporwave", "Outrun", "Chillwave", "House",  "DnB", "Drum & Bass", "Drum & base",  ]
+
+def pull_genre(title: str) -> Optional[str]:
+    options = [
+        "Deep House",
+        "Electro House",
+        "Future House",
+        "Progressive House",
+        "Tech House",
+        "Tropical House",
+        "Techno",
+        "Detroit Techno",
+        "Minimal Techno",
+        "Dub Techno",
+        "Industrial Techno",
+        "Drum and Bass",
+        "Liquid Drum and Bass",
+        "Jump-Up",
+        "Neurofunk",
+        "Jungle",
+        "Dubstep",
+        "Brostep",
+        "Chillstep",
+        "Trance",
+        "Progressive Trance",
+        "Psytrance (Psychedelic Trance)",
+        "Vocal Trance",
+        "Uplifting Trance",
+        "Electro",
+        "Electroclash",
+        "Electropop",
+        "EDM",
+        "Big Room",
+        "Dance-Pop",
+        "Ambient",
+        "Ambient House",
+        "Dark Ambient",
+        "Drone Music",
+        "Breakbeat",
+        "Nu Skool Breaks",
+        "Big Beat",
+        "Breakcore",
+        "Hardcore",
+        "Happy Hardcore",
+        "Gabber",
+        "UK Hardcore",
+        "Industrial",
+        "EBM",
+        "Aggrotech",
+        "IDM",
+        "Glitch",
+        "Drill 'n' Bass",
+        "Trip-Hop",
+        "Downtempo",
+        "Glitch Hop",
+        "Moombahton",
+        "Future Bass",
+        "Grime",
+        "Trap",
+        "Hybrid Trap",
+        "Synthwave",
+        "Vaporwave",
+        "Outrun",
+        "Chillwave",
+        "House",
+        "DnB",
+        "Drum & Bass",
+        "Drum & base",
+    ]
     for op in options:
         if op.lower() in title.lower():
             return op
-def attempt_get_title_author(yt: YouTube):
-    """
-    Attempt to get the title and author from the YouTube object
-    """
+    return None
+
+
+def attempt_get_title_author(info: dict) -> tuple[str, str]:
     try:
-        author, title = yt.title.split("-")
-    except:
-        parts = yt.title.split("-")
+        author, title = info["title"].split("-", 1)
+    except ValueError:
+        parts = info["title"].split("-")
         author = parts[0]
         title = " ".join(parts[1:])
+    return author.strip(), title.strip()
 
-    return author, title
 
-def pull_meta_data(yt: str):
-    """
-    Pull metadata from the YouTube video
-    Args:
-        yt (YouTube): The YouTube object
-
-    Returns:
-        dict: The metadata
-    """
-    featured = extract_featured_artist(yt.title) if extract_featured_artist(yt.title) else extract_featured_artist(
-        yt.author)
+def pull_meta_data(info: dict) -> dict:
+    featured = extract_featured_artist(info.get("title", "")) or extract_featured_artist(
+        info.get("uploader", "")
+    )
     if featured is None:
-        featured = ''
+        featured = ""
 
-    if "-" in yt.title:
-
-        author, title = attempt_get_title_author(yt)
-        title = title.strip().replace("  ", " ")
-        author = author.strip().replace("  ", " ")
+    if "-" in info.get("title", ""):
+        author, title = attempt_get_title_author(info)
     else:
-        author = yt.author
-        title = yt.title
+        author = info.get("uploader", "")
+        title = info.get("title", "")
 
     title = clean_title(title, featured)
     author = clean_title(author, featured)
     title = clean_remix(title, author)
 
-
     if featured:
         author = f"{author}, {featured}"
 
-    # Determine filename, author, and title
     if "-" not in title:
         filename = f"{title} - {author}"
     else:
         filename = title.replace("/", " ").replace("\\", " ")
 
-    # Additional metadata
-    artwork = yt.thumbnail_url
-    keywords = yt.keywords
-    comment = yt.description
-    date = yt.publish_date
+    artwork = info.get("thumbnail")
+    keywords = info.get("tags", [])
+    comment = info.get("description", "")
+    upload_date = info.get("upload_date")
+    date = None
+    if upload_date:
+        date = f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:]}"
 
     return {
         "filename": filename,
@@ -454,54 +350,30 @@ def pull_meta_data(yt: str):
     }
 
 
-def read_write_audio(meta_data: dict, dump_directory: str):
-    """
-    Convert the audio file to mp3 format
-    Args:
-        meta_data (dict): The metadata
-        dump_directory (str): The directory to dump the file to
+def read_write_audio(meta_data: dict, dump_directory: str, source_path: str) -> str:
+    """Convert downloaded audio to MP3 and save it to the dump directory."""
 
-    Returns:
-        filename (str): The name of the file
-    """
-    audio = AudioFileClip("temp_audio")
+    audio = AudioFileClip(source_path)
     save_filename = f"{meta_data['filename']}.mp3"
     final_save_filename = os.path.join(dump_directory, save_filename)
     audio.write_audiofile(final_save_filename)
-    os.remove("temp_audio")
+    audio.close()
+    os.remove(source_path)
     return final_save_filename
 
 
 def download_playlist(
-        playlist: Playlist,
-        dump_directory="./",
-        genre: Optional[str] = None,
-        do_yield=True,
-        verbosity=1,
-        download_indicator_function: Optional[callable] = None,
-        silence=True,
-):
-    """
-    Download a playlist from YouTube, song by song, adding the metadata thats extracted from the video
+    playlist: SimplePlaylist,
+    dump_directory: str = "./",
+    genre: Optional[str] = None,
+    do_yield: bool = True,
+    verbosity: int = 1,
+    download_indicator_function: Optional[callable] = None,
+    silence: bool = True,
+) -> Optional[dict]:
+    """Download a playlist and yield metadata for each song."""
 
-    Args:
-        playlist (Playlist): The playlist object
-        dump_directory (str): The directory to dump the files to
-        genre (str): The genre of the songs
-        do_yield (bool): Whether to yield the metadata
-        verbosity (int): The verbosity level  0 to 2. 0 is no output, 1 is minimal output, 2 is full output
-        download_indicator_function (callable): A function to call to indicate that a download has started
-        silence (bool): Whether to silence the output
-    """
-
-    def log(message, indicator: Optional[callable] = None, no_indicator: Optional[int] = 0):
-        """
-        Log a message
-        Args:
-            message (str): The message to log
-            indicator (callable): A function to call to indicate that a download has started
-            no_indicator (int): The status from 0 to x
-        """
+    def log(message: str, indicator: Optional[callable] = None, no_indicator: int = 0) -> None:
         if verbosity > 1:
             print(message)
         if indicator:
@@ -510,42 +382,46 @@ def download_playlist(
     if dump_directory and not os.path.exists(dump_directory):
         raise Exception("Dump directory does not exist")
 
-    # Loop through all videos in the playlist
     for url in playlist.video_urls:
         for attempt in range(5):
             try:
                 start_time = time.time()
 
                 log("Attempting to grab: " + url, download_indicator_function, 1)
-                yt = run_silently(download_stream_from_url, silence, url)
-                if yt:
-                    meta_data = pull_meta_data(yt)
+                info = run_silently(download_stream_from_url, silence, url)
+                if info:
+                    meta_data = pull_meta_data(info)
                     log("Metadata received: " + str(meta_data))
 
                     log("Attempting to download")
-                    filename = run_silently(read_write_audio, silence, meta_data, dump_directory)
+                    filename = run_silently(
+                        read_write_audio, silence, meta_data, dump_directory, info["filepath"]
+                    )
 
                     log("Download complete", download_indicator_function, 2)
 
-                    run_silently(set_metadata, silence, save_path=filename, genre=genre, **{**meta_data, **{"album":playlist.title}})
+                    run_silently(
+                        set_metadata,
+                        silence,
+                        save_path=filename,
+                        genre=genre,
+                        **{**meta_data, **{"album": playlist.title}},
+                    )
                     log("MP3 Metadata saved")
 
                     end_time = time.time()
-                    time_taken = (
-                            end_time - start_time
-                    )  # Time taken for this download in seconds
+                    time_taken = end_time - start_time
 
                     if do_yield:
                         yield meta_data, time_taken
-                        break
                     log("Download complete", download_indicator_function, 3)
+                    break
                 else:
                     if verbosity > 0:
                         log("Could not download: " + url)
-
-
-            except Exception as e:
+            except Exception as e:  # pragma: no cover - network dependent
                 if verbosity > 0:
                     log(f"Could not download: {url} because of {e}")
-                if attempt == 4:
+                if attempt == 4 and do_yield:
                     yield None, None
+
