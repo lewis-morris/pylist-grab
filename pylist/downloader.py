@@ -1,6 +1,8 @@
 import os
 import re
 import time
+import uuid
+import tempfile
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -10,7 +12,7 @@ from mutagen.id3 import TIT2, TPE1, COMM, APIC, TDRC, TCON, TALB
 from mutagen.mp3 import MP3
 from yt_dlp import YoutubeDL
 
-from pylist.utils import run_silently
+from pylist.utils import run_silently, sanitize_filename
 
 
 @dataclass
@@ -71,60 +73,59 @@ def set_metadata(
     """Populate ID3 metadata for the downloaded MP3 file."""
 
     audio = MP3(save_path)
+    if audio.tags is None:
+        try:
+            audio.add_tags()
+        except Exception:
+            pass
 
-    try:
-        audio.add_tags()
-    except Exception:
-        pass
+    modified = False
+
+    def set_frame(key: str, frame) -> None:
+        nonlocal modified
+        audio[key] = frame
+        modified = True
 
     if title:
-        audio["TIT2"] = TIT2(encoding=3, text=title)
-        audio.save()
-        audio = MP3(save_path)
+        set_frame("TIT2", TIT2(encoding=3, text=title))
 
     if author:
-        audio["TPE1"] = TPE1(encoding=3, text=author)
-        audio.save()
-        audio = MP3(save_path)
+        set_frame("TPE1", TPE1(encoding=3, text=author))
 
     if album:
-        audio["TALB"] = TALB(encoding=3, text=album)
-        audio.save()
-        audio = MP3(save_path)
+        set_frame("TALB", TALB(encoding=3, text=album))
 
     if comment:
-        audio["COMM"] = COMM(encoding=3, lang="eng", desc="desc", text=comment)
-        audio.save()
-        audio = MP3(save_path)
+        set_frame("COMM", COMM(encoding=3, lang="eng", desc="desc", text=comment))
 
     if date:
-        audio["TDRC"] = TDRC(encoding=3, text=str(date))
-        audio.save()
-        audio = MP3(save_path)
+        set_frame("TDRC", TDRC(encoding=3, text=str(date)))
 
     featured_artist = grab_ft(title)
     if featured_artist:
         featured_artist_tag = TPE1(encoding=3, text=featured_artist)
         if "TPE2" in audio:
             audio["TPE2"].text[0] = featured_artist
-            audio.save()
         else:
             audio["TPE2"] = featured_artist_tag
-            audio.save()
-        audio = MP3(save_path)
+        modified = True
 
     if artwork:
         try:
             artwork_data = requests.get(artwork, timeout=5).content
+            if audio.tags is None:
+                audio.add_tags()
             audio.tags.add(
                 APIC(encoding=3, mime="image/jpeg", type=3, desc="Cover", data=artwork_data)
             )
-            audio.save()
+            modified = True
         except Exception:
             pass
 
     if genre:
-        audio["TCON"] = TCON(encoding=3, text=genre)
+        set_frame("TCON", TCON(encoding=3, text=genre))
+
+    if modified:
         audio.save()
 
 
@@ -200,10 +201,14 @@ def validate_playlist(playlist_url: str) -> SimplePlaylist:
 def download_stream_from_url(song_url: str) -> dict:
     """Download the best audio from the given video URL."""
 
+    temp_basename = f"pylist_{uuid.uuid4().hex}"
+    temp_dir = tempfile.gettempdir()
+    temp_template = os.path.join(temp_dir, f"{temp_basename}.%(ext)s")
+
     ydl_opts = {
         "format": "bestaudio/best",
         "quiet": True,
-        "outtmpl": "temp_audio.%(ext)s",
+        "outtmpl": temp_template,
     }
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(song_url, download=True)
@@ -354,8 +359,16 @@ def read_write_audio(meta_data: dict, dump_directory: str, source_path: str) -> 
     """Convert downloaded audio to MP3 and save it to the dump directory."""
 
     audio = AudioFileClip(source_path)
-    save_filename = f"{meta_data['filename']}.mp3"
-    final_save_filename = os.path.join(dump_directory, save_filename)
+    base_filename = sanitize_filename(meta_data.get("filename", "")) or "track"
+    candidate = base_filename
+    counter = 1
+    final_save_filename = os.path.join(dump_directory, f"{candidate}.mp3")
+    while os.path.exists(final_save_filename):
+        candidate = f"{base_filename}_{counter}"
+        counter += 1
+        final_save_filename = os.path.join(dump_directory, f"{candidate}.mp3")
+
+    meta_data["filename"] = candidate
     audio.write_audiofile(final_save_filename)
     audio.close()
     os.remove(source_path)
@@ -384,6 +397,7 @@ def download_playlist(
 
     for url in playlist.video_urls:
         for attempt in range(5):
+            info: Optional[dict] = None
             try:
                 start_time = time.time()
 
@@ -420,8 +434,12 @@ def download_playlist(
                     if verbosity > 0:
                         log("Could not download: " + url)
             except Exception as e:  # pragma: no cover - network dependent
+                if info and info.get("filepath") and os.path.exists(info["filepath"]):
+                    try:
+                        os.remove(info["filepath"])
+                    except OSError:
+                        pass
                 if verbosity > 0:
                     log(f"Could not download: {url} because of {e}")
                 if attempt == 4 and do_yield:
                     yield None, None
-

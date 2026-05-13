@@ -1,0 +1,6 @@
+- [x] Shift the blocking `validate_playlist` call into the existing worker infrastructure so the GUI stays responsive while the loading modal is displayed (`gui.py:274`).
+- [x] Fix the download-button guard to read the label text instead of comparing the `QLabel` object to strings; the current condition never disables the button when no folder is selected (`gui.py:227`).
+- [x] Treat a cancelled dump-directory prompt as an exit path (print a friendly message and `sys.exit`) to avoid passing `None` into `download_playlist` and breaking on path joins (`cli.py:91`).
+- [x] Replace the global `temp_audio.%(ext)s` template with a `tempfile`-backed unique path, and ensure temporary files are cleaned even on failure to prevent collisions in concurrent runs (`downloader.py:204`).
+- [x] Batch ID3 tag updates so `set_metadata` opens the MP3 once, handles missing artwork gracefully, and refreshes tags only when fields change, cutting repeated disk I/O (`downloader.py:73`).
+- [x] Sanitize and deduplicate output filenames before writing by routing `meta_data['filename']` through `utils.sanitize_filename` and appending counters when needed to avoid overwriting tracks (`downloader.py:353`).

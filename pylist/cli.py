@@ -55,11 +55,10 @@ def confirm_dump_dir():
         # Create the directory if it doesn't exist
         if not os.path.exists(dump_directory):
             os.makedirs(dump_directory)
-    else:
-        print("Operation cancelled.")
-        return
+        return dump_directory
 
-    return dump_directory
+    print("Operation cancelled.")
+    sys.exit(0)
 
 
 

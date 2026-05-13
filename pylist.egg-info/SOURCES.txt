@@ -1,0 +1,11 @@
+setup.py
+pylist/__init__.py
+pylist/cli.py
+pylist/downloader.py
+pylist/gui.py
+pylist.egg-info/PKG-INFO
+pylist.egg-info/SOURCES.txt
+pylist.egg-info/dependency_links.txt
+pylist.egg-info/entry_points.txt
+pylist.egg-info/requires.txt
+pylist.egg-info/top_level.txt

@@ -1,0 +1,3 @@
+[console_scripts]
+pylist = pylist.cli:main
+pylist-gui = pylist.gui:gui

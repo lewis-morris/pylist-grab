@@ -29,10 +29,10 @@ from PySide6.QtWidgets import (
 )
 from qt_material import apply_stylesheet
 
-from pylist.downloader import (
-    download_playlist,
-    validate_playlist, pull_genre,
-)  # Replace these imports with your actual functions
+try:
+    from downloader import download_playlist, validate_playlist, pull_genre
+except ImportError:
+    from pylist.downloader import download_playlist, validate_playlist, pull_genre
 
 
 def get_file(path, filename):
@@ -137,6 +137,27 @@ class LoadingModal(QDialog):
         self.setStyleSheet("QLabel { font-size: 16px; text-align: center; }")
 
 
+class PlaylistValidator(QObject):
+    validated = Signal(object)
+    failed = Signal(str)
+    finished = Signal()
+
+    def __init__(self, url):
+        super().__init__()
+        self.url = url
+
+    @Slot()
+    def run(self):
+        try:
+            playlist = validate_playlist(self.url)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+        else:
+            self.validated.emit(playlist)
+        finally:
+            self.finished.emit()
+
+
 class DownloadWorker(QObject):
     progress = Signal(int, str, str, str, str)
     finished = Signal()
@@ -190,6 +211,9 @@ class App(QMainWindow):
         self.worker_thread = None
         self.download_worker = None
         self.playlist = None
+        self.validator_thread = None
+        self.validation_worker = None
+        self.loading_modal = None
         self.initUI()
 
     def initUI(self):
@@ -223,9 +247,6 @@ class App(QMainWindow):
         self.output_location_label.setText("No location selected")
         layout.addWidget(self.folder_button)
         layout.addWidget(self.output_location_label)
-
-        if self.output_location_label == "" or self.output_location_label == "No location selected":
-            self.download_button.setEnabled(False)
 
         self.genre = QLabel()
         self.genre.setText("Genre")
@@ -262,36 +283,65 @@ class App(QMainWindow):
             self.url_input.setPlaceholderText("Enter Playlist URL")
 
     def validate_url(self):
-        url = self.url_input.text()
-        if not url:
+        url = self.url_input.text().strip()
+        if not url or (self.validator_thread and self.validator_thread.isRunning()):
             return
 
-        # Show the loading modal
         self.loading_modal = LoadingModal(self)
         self.loading_modal.show()
+        self.change_all(False)
 
-        # Validate playlist (running in the main thread)
-        try:
-            self.playlist = validate_playlist(url)
-            if self.playlist:
-                self.playlist_length = len(self.playlist.video_urls)
-                self.folder_button.setEnabled(True)
-                self.download_button.setEnabled(True)
-                self.genre_input.setEnabled(True)
-                self.genre_input.setText(pull_genre(self.playlist.title))
-                self.playlist_title.setText(self.playlist.title)
-                self.playlist_title.setVisible(True)
-            else:
-                raise Exception("Invalid playlist URL.")
-        except Exception as e:
-            error_dialog = QMessageBox(self)
-            error_dialog.setWindowTitle("Validation Error")
-            error_dialog.setText(f"Error: {str(e)}")
-            error_dialog.setIcon(QMessageBox.Icon.Warning)
-            error_dialog.addButton("OK", QMessageBox.ButtonRole.AcceptRole)
-            error_dialog.exec()
+        self.validation_worker = PlaylistValidator(url)
+        self.validator_thread = QThread()
+        self.validation_worker.moveToThread(self.validator_thread)
 
-        self.loading_modal.close()
+        self.validation_worker.validated.connect(self.on_playlist_validated)
+        self.validation_worker.failed.connect(self.on_playlist_failed)
+        self.validation_worker.finished.connect(self.on_validation_finished)
+        self.validation_worker.finished.connect(self.validator_thread.quit)
+        self.validator_thread.finished.connect(self.validator_thread.deleteLater)
+        self.validator_thread.finished.connect(self.on_validation_thread_finished)
+
+        self.validator_thread.started.connect(self.validation_worker.run)
+        self.validator_thread.start()
+
+    @Slot(object)
+    def on_playlist_validated(self, playlist):
+        self.playlist = playlist
+        self.playlist_length = len(self.playlist.video_urls)
+        guessed_genre = pull_genre(self.playlist.title) or ""
+        self.genre_input.setText(guessed_genre)
+        self.playlist_title.setText(self.playlist.title)
+        self.playlist_title.setVisible(True)
+        self.song_list.clear()
+
+    @Slot(str)
+    def on_playlist_failed(self, message):
+        self.playlist = None
+        error_dialog = QMessageBox(self)
+        error_dialog.setWindowTitle("Validation Error")
+        error_dialog.setText(f"Error: {message}")
+        error_dialog.setIcon(QMessageBox.Icon.Warning)
+        error_dialog.addButton("OK", QMessageBox.ButtonRole.AcceptRole)
+        error_dialog.exec()
+        self.playlist_title.clear()
+        self.playlist_title.setVisible(False)
+        self.genre_input.clear()
+        self.song_list.clear()
+
+    @Slot()
+    def on_validation_finished(self):
+        if self.loading_modal:
+            self.loading_modal.close()
+            self.loading_modal = None
+        self.change_all(True)
+
+    @Slot()
+    def on_validation_thread_finished(self):
+        if self.validation_worker:
+            self.validation_worker.deleteLater()
+            self.validation_worker = None
+        self.validator_thread = None
 
     def select_folder(self):
         self.output_folder = QFileDialog.getExistingDirectory(
@@ -304,8 +354,10 @@ class App(QMainWindow):
             self.output_location_label.setText("Not a valid output folder")
 
     def change_all(self, status=False):
-        self.download_button.setEnabled(status)
-        self.genre_input.setEnabled(status)
+        has_output_folder = bool(self.output_folder and os.path.isdir(self.output_folder))
+        has_playlist = bool(self.playlist and getattr(self.playlist, "video_urls", None))
+        self.download_button.setEnabled(status and has_output_folder and has_playlist)
+        self.genre_input.setEnabled(status and has_playlist)
         self.folder_button.setEnabled(status)
         self.validate_url_button.setEnabled(status)
         self.url_input.setEnabled(status)
